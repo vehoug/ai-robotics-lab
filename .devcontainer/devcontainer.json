@@ -1,0 +1,26 @@
+{
+  "name": "uir-t1",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "COPPELIASIM_RELEASE": "V4_6_0_rev18"
+    }
+  },
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}"
+  },
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
+  ],
+  "runArgs": [
+    "--device=/dev/dri"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"]
+    }
+  }
+}
