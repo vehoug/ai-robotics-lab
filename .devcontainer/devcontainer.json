@@ -2,6 +2,7 @@
   "name": "uir-t1",
   "build": {
     "dockerfile": "Dockerfile",
+    "context": ".",
     "args": {
       "COPPELIASIM_RELEASE": "V4_6_0_rev18"
     }
@@ -10,7 +11,8 @@
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "containerEnv": {
-    "DISPLAY": "${localEnv:DISPLAY}"
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "PYTHONPATH": "/workspace/b4m36uir_24_t1_resource_pack/hexapod_robot:/workspace/b4m36uir_24_t1_resource_pack/hexapod_explorer"
   },
   "mounts": [
     "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
