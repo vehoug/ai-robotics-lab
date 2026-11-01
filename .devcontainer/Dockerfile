@@ -27,11 +27,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libavcodec58 libavformat58 libavutil56 libswscale5 \
     && rm -rf /var/lib/apt/lists/*
 
+# Python runtime and packages without numpy ties come from apt.
+# The numpy-based scientific stack comes from pip (requirements.txt) so all
+# compiled packages are built against the same numpy version.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-tk \
-        python3-numpy python3-scipy python3-matplotlib python3-pandas python3-sympy \
         python3-zmq python3-cbor2 \
     && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 RUN groupadd --gid ${USER_GID} ${USERNAME} \
     && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME} \
