@@ -99,6 +99,53 @@ class HexapodExplorer:
                 return False
         return True
 
+    P_Z_OCC_FREE_CELL = (1.0 + 0.0 - 0.95) / 2.0
+    P_Z_OCC_HIT_CELL = (1.0 + 0.95 - 0.0) / 2.0
+
+    @staticmethod
+    def bayes_update(p_prior, p_z_occ):
+        """ Bayesian update of P(m = occupied) given the measurement likelihood P(z | m = occupied)"""
+        numerator = p_z_occ * p_prior
+        denominator = numerator + (1.0 - p_z_occ) * (1.0 - p_prior)
+        return numerator / denominator if denominator > 0.0 else p_prior
+
+    @staticmethod
+    def points_to_cells(grid_map, points):
+        """ World points (N x 2, [x, y]) -> integer (row, col) cells (N x 2), same convention
+            as world_to_grid but with floor so points left/below the map get negative indices"""
+        col = np.floor((points[:, 0] - grid_map.origin.position.x) / grid_map.resolution).astype(int)
+        row = np.floor((points[:, 1] - grid_map.origin.position.y) / grid_map.resolution).astype(int)
+        return np.column_stack((row, col))
+
+    def resize_map(self, grid_map, pts_world):
+        """ Hard variant: create / enlarge the map so all the world points fit into it.
+            The origin only moves by whole cells, so the already mapped cells stay aligned."""
+        res = grid_map.resolution
+        if grid_map.data is None or not grid_map.width or not grid_map.height:
+            lo = np.floor(pts_world.min(axis=0) / res) * res
+            grid_map.origin = Pose(Vector3(lo[0], lo[1], 0.0), Quaternion(0, 0, 0, 1))
+            grid_map.width, grid_map.height = 1, 1
+            grid_map.data = 0.5 * np.ones(1)
+ 
+        cells = self.points_to_cells(grid_map, pts_world)
+        r_min = min(0, cells[:, 0].min())
+        c_min = min(0, cells[:, 1].min())
+        r_max = max(grid_map.height - 1, cells[:, 0].max())
+        c_max = max(grid_map.width - 1, cells[:, 1].max())
+        new_h, new_w = int(r_max - r_min + 1), int(c_max - c_min + 1)
+        if new_h == grid_map.height and new_w == grid_map.width:
+            return grid_map
+ 
+        new_data = 0.5 * np.ones((new_h, new_w))
+        old = np.asarray(grid_map.data, dtype=float).reshape(grid_map.height, grid_map.width)
+        new_data[-r_min:-r_min + grid_map.height, -c_min:-c_min + grid_map.width] = old
+ 
+        grid_map.origin.position.x += c_min * res
+        grid_map.origin.position.y += r_min * res
+        grid_map.width, grid_map.height = new_w, new_h
+        grid_map.data = new_data.flatten()
+        return grid_map
+
 
     def fuse_laser_scan(self, grid_map, laser_scan, odometry):
         """ Method to fuse the laser scan data sampled by the robot with a given 
@@ -112,8 +159,45 @@ class HexapodExplorer:
         """
         grid_map_update = copy.deepcopy(grid_map)
 
-        #TODO:[t1d_map] fuse the correctly aligned laser data into the probabilistic occupancy grid map
+        if grid_map is None or laser_scan is None or odometry is None:
+            return grid_map_update
+        if laser_scan.distances is None or len(laser_scan.distances) == 0:
+            return grid_map_update
 
+        distances = np.asarray(laser_scan.distances, dtype=float)
+        angles = laser_scan.angle_min + np.arange(len(distances)) * laser_scan.angle_increment
+        valid = np.isfinite(distances) & (distances >= laser_scan.range_min) & (distances <= laser_scan.range_max)
+        if not np.any(valid):
+            return grid_map_update
+        distances, angles = distances[valid], angles[valid]
+        points = np.column_stack((distances * np.cos(angles), distances * np.sin(angles)))
+
+        R = np.asarray(odometry.pose.orientation.to_R())[:2, :2]
+        robot_xy = np.array([odometry.pose.position.x, odometry.pose.position.y])
+        points_world = points @ R.T + robot_xy
+
+        if grid_map_update.data is None:
+            self.dynamic_map = True
+        if getattr(self, 'dynamic_map', False):
+            grid_map_update = self.resize_map(grid_map_update, np.vstack((points_world, robot_xy)))
+
+
+        hit_cells = self.points_to_cells(grid_map_update, points_world)
+        robot_cell = tuple(int(v) for v in self.points_to_cells(grid_map_update, robot_xy.reshape(1, 2))[0])
+
+        grid = np.asarray(grid_map_update.data, dtype=float).reshape(grid_map_update.height, grid_map_update.width)
+
+        for hit in hit_cells:
+            ray = self.bresenham(robot_cell, (int(hit[0]), int(hit[1])))
+
+            for cell in ray[:-1]:
+                if self.in_bounds(grid, cell):
+                    grid[cell] = self.bayes_update(grid[cell], self.P_Z_OCC_FREE_CELL)
+            end = ray[-1]
+            if self.in_bounds(grid, end):
+                grid[end] = self.bayes_update(grid[end], self.P_Z_OCC_HIT_CELL)
+
+        grid_map_update.data = grid.flatten()
         return grid_map_update
 
 
