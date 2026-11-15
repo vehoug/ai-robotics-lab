@@ -209,8 +209,27 @@ class HexapodExplorer:
             pose_list: Pose[] - list of selected frontiers
         """
 
-        #TODO:[t1e_expl] find free-adges and cluster the frontiers
-        return None 
+        if grid_map is None or grid_map.data is None:
+            return None
+ 
+        data = np.asarray(grid_map.data, dtype=float).reshape((grid_map.height, grid_map.width))
+        free = data < 0.5
+        unknown = data == 0.5
+ 
+        mask = np.array([[1, 1, 1],
+                         [1, 0, 1],
+                         [1, 1, 1]])
+        free_neighbors = ndimg.convolve(free.astype(int), mask, mode='constant', cval=0)
+        unknown_neighbors = ndimg.convolve(unknown.astype(int), mask, mode='constant', cval=0)
+ 
+        free_edges = free & (free_neighbors > 0) & (unknown_neighbors > 0)
+ 
+        labels, num_labels = skimage.measure.label(free_edges, connectivity=2, return_num=True)
+        if num_labels == 0:
+            return None
+ 
+        centroids = ndimg.center_of_mass(free_edges, labels, range(1, num_labels + 1))
+        return [self.grid_to_world(grid_map, centroid) for centroid in centroids]
 
 
     def find_inf_frontiers(self, grid_map):
